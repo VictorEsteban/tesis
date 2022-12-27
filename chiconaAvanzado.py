@@ -9,6 +9,9 @@
 import cv2 # Opencv - muestra la transmisión de video
 import numpy as np # Numpy: manipula los datos del paquete devueltos por depthai
 import depthai # depthai - acceda a la cámara y sus paquetes de datos
+import adafruit_dht # importa la libreria que controla el sensor dht
+import board
+import RPi.GPIO as gpio
 import blobconverter #blobconverter: compila y descarga blobs de la red neuronal MyriadX
 from time import sleep
 
@@ -44,6 +47,18 @@ xout_nn = pipeline.create(depthai.node.XLinkOut)
 xout_nn.setStreamName('nn')
 detection_nn.out.link(xout_nn.input)
 
+#Se configura los pines de la placa en modo BCM
+gpio.setmode(gpio.BCM)
+gpio.setup(3, gpio.OUT)
+gpio.setup(4, gpio.OUT)
+gpio.setup(17, gpio.OUT)
+gpio.output(3, False)
+gpio.output(4, True)
+gpio.output(17, True)
+
+#Se configura el sensor en el pin 2 #BCM
+dhtDevice = adafruit_dht.DHT22(board.D2)
+
 with depthai.Device(pipeline) as device:
 
     q_rgb = device.getOutputQueue('rgb')
@@ -51,9 +66,10 @@ with depthai.Device(pipeline) as device:
 
     frame = None
     detections = []
-    peligroP = 6
-    peligroT = 6
-    peligroPT = peligroP + peligroT
+    temperature_c = dhtDevice.temperature
+    #peligroP = 6
+    #peligroT = 6
+    #peligroPT = peligroP + peligroT
 
     def frameNorm(frame, bbox):
         normVals = np.full(len(bbox), frame.shape[0])
@@ -62,6 +78,7 @@ with depthai.Device(pipeline) as device:
 
 # Se consumen los resultados tanto de la cámara a color, como también de la red neuronal
     while True:
+        print('Temp: {:.1f} C'.format(temperature_c))
         in_rgb = q_rgb.tryGet()
         in_nn = q_nn.tryGet()
         if in_rgb is not None:
@@ -69,27 +86,30 @@ with depthai.Device(pipeline) as device:
         if in_nn is not None:
             detections = in_nn.detections
         if frame is not None:
-            gpio.out(5, True) #Led verde pin 5, led indicador que el sistema funciona correctamente.
+            #gpio.out(5, True) #Led verde pin 5, led indicador que el sistema funciona correctamente.
             for detection in detections:
                 if detection.label==15:
                     bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
                     cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
-                    sleep(6)
-                    if detection.label==15:
-                        gpio.out(7, True) #Led amarillo pin 7, led indicador que se detecto a una persona.
-                        peligroP = (peligroP^0)
-                if dht >= 30:
-                    gpio.out(8, True)
-                    peligroT = (peligroT^0)
-                if peligroPT == 2 & detection.label==15:
-                    bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 0, 255), 2)
-                    gpio.out(alzaVidrios, True)
-                    gpio.out(10, True) #bocina
-                    sleep(10)
-                    gpio.cleanup()
-                else:
-                    print(detection.label)
+                    #sleep(6) provoca retraso en la imagenn
+                    #if detection.label==15:
+                        #pio.out(7, True) #Led amarillo pin 7, led indicador que se detecto a una persona.
+                        #peligroP = (peligroP^0)
+                #if dht >= 30:
+                    #pio.out(8, True)
+                    #peligroT = (peligroT^0)
+                #if peligroPT == 2 & detection.label==15:
+                    #bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+                    #cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 0, 255), 2)
+                    #gpio.out(alzaVidrios, True)
+                    #gpio.out(10, True) #bocina
+                    #sleep(10)
+                    #gpio.cleanup()
+                
+            
+
+                #else:
+                    #print(detection.label)
             cv2.imshow("preview", frame)
         if cv2.waitKey(1) == ord('q'):
                 break        
