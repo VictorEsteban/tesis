@@ -47,46 +47,44 @@ xout_nn = pipeline.create(depthai.node.XLinkOut)
 xout_nn.setStreamName('nn')
 detection_nn.out.link(xout_nn.input)
 
-#Se configura los pines de la placa en modo BCM
-#gpio.setmode(gpio.BCM)
-#gpio.setup(3, gpio.OUT)
-#gpio.setup(4, gpio.OUT)
-#gpio.setup(17, gpio.OUT)
-#gpio.output(3, False)
-#gpio.output(4, True)
-#gpio.output(17, True)
+with depthai.Device(pipeline) as device:
 
-#Se configura el sensor en el pin 2 #BCM
-#dhtDevice = adafruit_dht.DHT22(board.D2)
+    q_rgb = device.getOutputQueue('rgb')
+    q_nn = device.getOutputQueue('nn')
 
-def camara():
+    frame = None
+    detections = []
+    persona = 0
 
-    with depthai.Device(pipeline) as device:
-
-        q_rgb = device.getOutputQueue('rgb')
-        q_nn = device.getOutputQueue('nn')
-
-        frame = None
-        detections = []
-
-        def frameNorm(frame, bbox):
-            normVals = np.full(len(bbox), frame.shape[0])
-            normVals[::2] = frame.shape[1] #[::2] en python se le llama rebanadas. [::2] se salta los indices pares
-            return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
+    def frameNorm(frame, bbox):
+        normVals = np.full(len(bbox), frame.shape[0])
+        normVals[::2] = frame.shape[1] #[::2] en python se le llama rebanadas. [::2] se salta los indices pares
+        return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
 
 # Se consumen los resultados tanto de la cámara a color, como también de la red neuronal
-        while True:
-            in_rgb = q_rgb.tryGet()
-            in_nn = q_nn.tryGet()
-            if in_rgb is not None:
-                frame = in_rgb.getCvFrame()
-            if in_nn is not None:
-                detections = in_nn.detections
-            if frame is not None:
-                for detection in detections:
-                    if detection.label==15:
-                        bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-                        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)      
-                cv2.imshow("preview", frame)
-            if cv2.waitKey(1) == ord('q'):
-                    break      
+    def camara():
+        global frame # devuelve un arreglo de 3x3 el cual indica la posicion y color del recuadro rastreador, debe ser global para que pueda ser utilizada por otros hilos
+        global detections # devuelve el codigo del objeto detectado, debe ser global para que pueda ser utilizado por otros hilos
+        global persona # devuelve el resultado de la variable detection.label
+        in_rgb = q_rgb.tryGet()
+        in_nn = q_nn.tryGet()
+        if in_rgb is not None:
+            frame = in_rgb.getCvFrame()
+        if in_nn is not None:
+            detections = in_nn.detections
+        if frame is not None:
+            for detection in detections:
+                if detection.label==15:
+                    persona = 15 # Se crea la variable persona y se configura como global, ya que 'detection.label' no se puede sacar fuera de este hilo como variable global.
+                    bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
+                elif detection.label != 15:
+                    persona = 0 #Si es 0 significa que no detecta a una persona, si es 15 es porque esta detectando a una persona.
+            cv2.imshow("preview", frame)
+
+# Se inicia el programa principal y dentro se encuentran los hilos            
+    while True:
+        camara()
+        if cv2.waitKey(1) == ord('q'):
+            break
+            
