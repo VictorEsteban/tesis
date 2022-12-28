@@ -13,6 +13,7 @@ import adafruit_dht # importa la libreria que controla el sensor dht
 import board
 import RPi.GPIO as gpio
 import blobconverter #blobconverter: compila y descarga blobs de la red neuronal MyriadX
+from threading import Thread
 from time import sleep
 
 # Se crea un Pipeline vacio
@@ -52,12 +53,10 @@ gpio.setmode(gpio.BCM)
 gpio.setup(3, gpio.OUT)
 gpio.setup(4, gpio.OUT)
 gpio.setup(17, gpio.OUT)
-gpio.output(3, False)
-gpio.output(4, True)
-gpio.output(17, True)
+
 
 #Se configura el sensor en el pin 2 #BCM
-dhtDevice = adafruit_dht.DHT22(board.D2)
+#dhtDevice = adafruit_dht.DHT22(board.D2, use_pulseio=False)
 
 with depthai.Device(pipeline) as device:
 
@@ -66,7 +65,7 @@ with depthai.Device(pipeline) as device:
 
     frame = None
     detections = []
-    temperature_c = dhtDevice.temperature
+    salida = 0
     #peligroP = 6
     #peligroT = 6
     #peligroPT = peligroP + peligroT
@@ -77,39 +76,54 @@ with depthai.Device(pipeline) as device:
         return (np.clip(np.array(bbox), 0, 1) * normVals).astype(int)
 
 # Se consumen los resultados tanto de la cámara a color, como también de la red neuronal
-    while True:
-        print('Temp: {:.1f} C'.format(temperature_c))
-        in_rgb = q_rgb.tryGet()
-        in_nn = q_nn.tryGet()
-        if in_rgb is not None:
-            frame = in_rgb.getCvFrame()
-        if in_nn is not None:
-            detections = in_nn.detections
-        if frame is not None:
-            #gpio.out(5, True) #Led verde pin 5, led indicador que el sistema funciona correctamente.
-            for detection in detections:
-                if detection.label==15:
-                    bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-                    cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
-                    #sleep(6) provoca retraso en la imagenn
-                    #if detection.label==15:
-                        #pio.out(7, True) #Led amarillo pin 7, led indicador que se detecto a una persona.
-                        #peligroP = (peligroP^0)
-                #if dht >= 30:
-                    #pio.out(8, True)
-                    #peligroT = (peligroT^0)
-                #if peligroPT == 2 & detection.label==15:
-                    #bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
-                    #cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 0, 255), 2)
-                    #gpio.out(alzaVidrios, True)
-                    #gpio.out(10, True) #bocina
-                    #sleep(10)
-                    #gpio.cleanup()
-                
-            
+    def camara():
+        while True:
+            global frame # devuelve un arreglo de 3x3 el cual indica la posicion y color del recuadro rastreador, debe ser global para que pueda ser utilizada por otros hilos
+            global detections # devuelve el codigo del objeto detectado, debe ser global para que pueda ser utilizado por otros hilos
+            global persona # devuelve el resultado de la variable detection.label
+            in_rgb = q_rgb.tryGet()
+            in_nn = q_nn.tryGet()
+            if in_rgb is not None:
+                frame = in_rgb.getCvFrame()
+            if in_nn is not None:
+                detections = in_nn.detections
+            if frame is not None:
+                for detection in detections:
+                    if detection.label==15:
+                        persona = 15 # Se crea la variable persona y se configura como global, ya que 'detection.label' no se puede sacar fuera de este hilo como variable global.
+                        bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
+                        cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
+                    elif detection.label != 15:
+                        persona = 0 #Si es 0 significa que no detecta a una persona, si es 15 es porque esta detectando a una persona.
+                cv2.imshow("preview", frame)
+            if cv2.waitKey(1) == ord('q'):
+                salida = 1
+                break   
 
-                #else:
-                    #print(detection.label)
-            cv2.imshow("preview", frame)
-        if cv2.waitKey(1) == ord('q'):
-                break        
+    def sensor():
+        dhtDevice = adafruit_dht.DHT22(board.D2, use_pulseio=False)
+        temperature_c = dhtDevice.temperature
+        temperature_f = temperature_c*(9/5)+32
+        print('Temp: {:.1f}°C / {:.1f}°F'.format(temperature_c, temperature_f))
+        sleep(60)
+        while True:
+            try:
+                sensor()
+            except RuntimeError as error:
+                print(error.args[0])
+                sleep(2)
+                continue
+            except Exception as error:
+                dhtDevice.exit()
+    
+                
+    hilocamara = Thread(target=camara)
+    hilosensor = Thread(target=sensor, daemon=True)
+    hilocamara.start()
+    hilosensor.start()
+    hilocamara.join()
+
+
+
+       
+             
