@@ -12,7 +12,8 @@ import depthai # depthai - acceda a la cámara y sus paquetes de datos
 import adafruit_dht # importa la libreria que controla el sensor dht
 import board
 import RPi.GPIO as gpio
-import blobconverter #blobconverter: compila y descarga blobs de la red neuronal MyriadX
+import blobconverter #blobconverter: compila y descarga blobs de la red neuronal MyriadX.
+import math
 from threading import Thread
 from time import sleep
 
@@ -48,15 +49,13 @@ xout_nn = pipeline.create(depthai.node.XLinkOut)
 xout_nn.setStreamName('nn')
 detection_nn.out.link(xout_nn.input)
 
-#Se configura los pines de la placa en modo BCM
 gpio.setmode(gpio.BCM)
 gpio.setup(3, gpio.OUT)
 gpio.setup(4, gpio.OUT)
 gpio.setup(17, gpio.OUT)
-
-
-#Se configura el sensor en el pin 2 #BCM
-#dhtDevice = adafruit_dht.DHT22(board.D2, use_pulseio=False)
+gpio.output(3, False)
+gpio.output(4, False)
+gpio.output(17, False)
 
 with depthai.Device(pipeline) as device:
 
@@ -66,9 +65,11 @@ with depthai.Device(pipeline) as device:
     frame = None
     detections = []
     salida = 0
-    #peligroP = 6
-    #peligroT = 6
-    #peligroPT = peligroP + peligroT
+    peligroP = 6
+    peligroT = 6
+    peligroPT = peligroP + peligroT
+    aux = 0
+    persona = 0
 
     def frameNorm(frame, bbox):
         normVals = np.full(len(bbox), frame.shape[0])
@@ -90,21 +91,29 @@ with depthai.Device(pipeline) as device:
             if frame is not None:
                 for detection in detections:
                     if detection.label==15:
-                        persona = 15 # Se crea la variable persona y se configura como global, ya que 'detection.label' no se puede sacar fuera de este hilo como variable global.
+                        gpio.output(4, True)
                         bbox = frameNorm(frame, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
                         cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), 2)
                     elif detection.label != 15:
-                        persona = 0 #Si es 0 significa que no detecta a una persona, si es 15 es porque esta detectando a una persona.
+                        gpio.output(4, False)
                 cv2.imshow("preview", frame)
             if cv2.waitKey(1) == ord('q'):
                 salida = 1
+                gpio.cleanup()
                 break   
 
     def sensor():
+        
+        global temperature_c
+        global temperature_f
         dhtDevice = adafruit_dht.DHT22(board.D2, use_pulseio=False)
         temperature_c = dhtDevice.temperature
         temperature_f = temperature_c*(9/5)+32
         print('Temp: {:.1f}°C / {:.1f}°F'.format(temperature_c, temperature_f))
+        if temperature_c >= 25.0:
+            gpio.output(3, True)
+        else:
+            gpio.output(3, False)
         sleep(60)
         while True:
             try:
@@ -115,12 +124,41 @@ with depthai.Device(pipeline) as device:
                 continue
             except Exception as error:
                 dhtDevice.exit()
+
+    def accesorios():
+        #Se configura los pines de la placa en modo BCM
+        
+
+        global peligroP
+        global peligroT
+        global peligroPT
+        
+        #while True:
+            #if persona == 15:
+                #gpio.output(4, True)
+                #peligroP = (peligroP**1)
+
+            #else:
+                #gpio.output(4, False)
+
+            #if aux >= 1:
+                #gpio.output(3, True)
+                #peligroT = (peligroT**1)
+
+            #else: 
+                #gpio.output(3, False)
     
-                
+            #if peligroPT == 2 & persona == 15:
+                #gpio.output(17, True)
+                #gpio.output(3, True)
+                #gpio.output(4, True)   
+        
     hilocamara = Thread(target=camara)
     hilosensor = Thread(target=sensor, daemon=True)
+    #hiloaccesorios = Thread(target=accesorios, daemon=True)
     hilocamara.start()
     hilosensor.start()
+    #hiloaccesorios.start()
     hilocamara.join()
 
 
