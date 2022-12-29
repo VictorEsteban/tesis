@@ -12,9 +12,11 @@ import depthai # depthai - acceda a la cámara y sus paquetes de datos.
 import adafruit_dht # importa la libreria que controla el sensor dht.
 import board # libreria que define los pines correspondientes a los sensores DHT, en BCM.
 import RPi.GPIO as gpio #Libreria para controlar los pines de Raspberry pi.
+import uno
 import blobconverter #blobconverter: compila y descarga blobs de la red neuronal MyriadX. Devuelve el PATH del modelo de red neuronal utilizado.
 from threading import Thread #Libreria para utilzar Thread (hilos) para relizar programación concurrente.
 from time import sleep
+from time import strftime
 
 # Se crea un Pipeline vacio
 pipeline = depthai.Pipeline() #Un pipeline es un entorno el cual se pueden crear nodos dentro de él.
@@ -102,6 +104,7 @@ with depthai.Device(pipeline) as device:
                 cv2.imshow("preview", frame) #muestra una ventana con la camara a color y la red neuronal funcionando.
             if cv2.waitKey(1) == ord('q'): #espera una tecla en este caso la 'q' para pasar a la siguiente linea y finalizar el programa.
                 gpio.cleanup()
+                file.close()
                 break   
 # se crea una funcion 'sensor' la cual es capaz se recibir la informacion entregada por el sensor DHT22, devuelve la temperatura en grados celsius, farenheit y humedad.
     def sensor():
@@ -111,7 +114,8 @@ with depthai.Device(pipeline) as device:
         dhtDevice = adafruit_dht.DHT22(board.D2, use_pulseio=False)
         temperature_c = dhtDevice.temperature
         temperature_f = temperature_c*(9/5)+32
-        print('Temp: {:.1f}°C / {:.1f}°F'.format(temperature_c, temperature_f)) # muestra el texto en consola
+        hora = strftime('%H:%M:%S')
+        print('Temp: {:.1f}°C / {:.1f}°F | Hora: {}'.format(temperature_c, temperature_f, hora)) # muestra el texto en consola
         if temperature_c >= 20.0:
             gpio.output(3, True)
             aux2 = True
@@ -122,7 +126,8 @@ with depthai.Device(pipeline) as device:
             gpio.output(17, True)
         else:
             gpio.output(17, False)
-        sleep(60)
+        file.write('{:.1f} / {:.1f} | {}\n'.format(temperature_c, temperature_f, hora))
+        sleep(5)
         while True:
             try:
                 sensor()
@@ -132,11 +137,19 @@ with depthai.Device(pipeline) as device:
                 continue
             except Exception as error:
                 dhtDevice.exit()
+    def datos():
+        global file
+        file = open('lectura_de_datos.txt', 'w')
+        file.write('Temperatura °C / Temperatura °F | Hora\n')
+        
+        
 # se crean los hilos para cada funcion y así establecer que el programa funcione de forma concurrente.            
     hilocamara = Thread(target=camara)
     hilosensor = Thread(target=sensor, daemon=True) #Daemon True indica que es un hilo hijo
+    hilodatos = Thread(target=datos)
     hilocamara.start() #inicia el hilo
-    hilosensor.start() # inicia el hilo
+    hilosensor.start() #inicia el hilo
+    hilodatos.start() #inicia el hilo
     hilocamara.join() #finaliza el hilo padre
 
 
